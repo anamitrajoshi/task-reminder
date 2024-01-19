@@ -3,6 +3,8 @@ from tkinter import messagebox
 from datetime import datetime, timedelta
 from tkcalendar import DateEntry
 from tkinter import ttk
+import threading
+import pickle
 
 class TaskListApp:
 
@@ -41,6 +43,12 @@ class TaskListApp:
                                        bg='#F96167', fg='white', font='Montserrat')  
         self.remove_button.grid(row=0, column=5, padx=10, pady=10)
 
+        self.save_button = tk.Button(master, text="Save Tasks", command=self.save_tasks, bg='#FFA07A', font='Montserrat')
+        self.save_button.grid(row=1, column=4, padx=10, pady=10)
+
+        self.load_tasks()  # Load saved tasks on startup
+        self.update_reminders()  # Start the reminder thread
+
         self.master.protocol("WM_DELETE_WINDOW", self.on_close)
 
     def add_task(self):
@@ -54,7 +62,7 @@ class TaskListApp:
             formatted_due_datetime = due_datetime.strftime("%Y-%m-%d %H:%M:%S")
             
             task_with_due_date = f"{task} (Due: {formatted_due_datetime})"
-            self.tasks_queue.append(task_with_due_date)
+            self.tasks_queue.append((task_with_due_date, due_datetime))
             self.task_listbox.insert(tk.END, task_with_due_date)
             self.task_entry.delete(0, tk.END)
 
@@ -68,7 +76,43 @@ class TaskListApp:
             messagebox.showwarning("Selection Error",
                                    "Please select a task to remove.")
 
+    def update_reminders(self):
+        # Separate thread to continuously check for reminders
+        def check_reminders():
+            while True:
+                now = datetime.now()
+                for task, due_datetime in self.tasks_queue:
+                    if now >= due_datetime:
+                        self.show_reminder(task)
+                        self.tasks_queue.remove((task, due_datetime))
+                        self.task_listbox.delete(0, tk.END)  # Refresh the listbox
+                        for t, _ in self.tasks_queue:
+                            self.task_listbox.insert(tk.END, t)
+                tk._default_root.after(60000, check_reminders)  # Check every minute
+
+        threading.Thread(target=check_reminders, daemon=True).start()
+
+    def show_reminder(self, task):
+        messagebox.showinfo("Reminder", f"It's time for:\n{task}")
+
+    def save_tasks(self):
+        # Save tasks to a file using pickle
+        with open("tasks.pkl", "wb") as file:
+            pickle.dump(self.tasks_queue, file)
+
+    def load_tasks(self):
+        # Load tasks from a file using pickle
+        try:
+            with open("tasks.pkl", "rb") as file:
+                self.tasks_queue = pickle.load(file)
+                for task, _ in self.tasks_queue:
+                    self.task_listbox.insert(tk.END, task)
+        except FileNotFoundError:
+            pass
+
     def on_close(self):
+        # Save tasks on exit
+        self.save_tasks()
         if messagebox.askokcancel("Exit", "Do you want to exit?"):
             self.master.destroy()
 
